@@ -2238,7 +2238,23 @@ export default function Neurosite() {
                 <div className="item-icon">💰</div>
                 <div>
                   <div className="item-value">Custos altos</div>
-                  <div className="item-label">Hospedagem e manutenção</div>
+                  <div className="item-label">
+                    Hospedagem e manutenção{" "}
+                    <span
+                      style={{
+                        background:
+                          "linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%)",
+                        color: "#fff",
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        fontSize: "10px",
+                        fontWeight: 800,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Em Breve
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -2287,7 +2303,23 @@ export default function Neurosite() {
               <div className="comparison-item">
                 <div className="item-icon">🎯</div>
                 <div>
-                  <div className="item-value">Hospedagem inclusa</div>
+                  <div className="item-value">
+                    Hospedagem inclusa{" "}
+                    <span
+                      style={{
+                        background:
+                          "linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%)",
+                        color: "#fff",
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        fontSize: "10px",
+                        fontWeight: 800,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Em Breve
+                    </span>
+                  </div>
                   <div className="item-label">Infraestrutura turbo</div>
                 </div>
               </div>
@@ -2719,9 +2751,71 @@ export default function Neurosite() {
               <div className="pricing-feature">
                 ✓ 35 Páginas IA (35 Créditos)
               </div>
-              <div className="pricing-feature">✓ Até 10 mil visitas/mês</div>
-              <div className="pricing-feature">✓ Hospedagem inclusa</div>
-              <div className="pricing-feature">✓ SSL gratuito</div>
+              <div className="pricing-feature">
+                ✓ Até 10 mil visitas/mês{" "}
+                <span
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%)",
+                    color: "#fff",
+                    padding: "2px 8px",
+                    borderRadius: "12px",
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Em Breve
+                </span>
+              </div>
+              <div className="pricing-feature">
+                ✓ Hospedagem inclusa{" "}
+                <span
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%)",
+                    color: "#fff",
+                    padding: "2px 8px",
+                    borderRadius: "12px",
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Em Breve
+                </span>
+                <span
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%)",
+                    color: "#fff",
+                    padding: "2px 8px",
+                    borderRadius: "12px",
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Em Breve
+                </span>
+              </div>
+              <div className="pricing-feature">
+                ✓ SSL gratuito{" "}
+                <span
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%)",
+                    color: "#fff",
+                    padding: "2px 8px",
+                    borderRadius: "12px",
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Em Breve
+                </span>
+              </div>
             </div>
             <a
               className="pricing-cta secondary"
