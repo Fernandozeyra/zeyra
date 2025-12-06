@@ -2784,20 +2784,6 @@ export default function Neurosite() {
                 >
                   Em Breve
                 </span>
-                <span
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%)",
-                    color: "#fff",
-                    padding: "2px 8px",
-                    borderRadius: "12px",
-                    fontSize: "10px",
-                    fontWeight: 800,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  Em Breve
-                </span>
               </div>
               <div className="pricing-feature">
                 ✓ SSL gratuito{" "}
