@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="./src/assets/zeyra-circle.png"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zeyra</title>
+    <meta
+      name="Zeyra Generator"
+      content="Zeyra IA criar seu site profissional enquanto você foca no seu negócio."
+    />
+
+    <!-- Meta Pixel Code -->
+    <script>
+      !(function (f, b, e, v, n, t, s) {
+        if (f.fbq) return;
+        n = f.fbq = function () {
+          n.callMethod
+            ? n.callMethod.apply(n, arguments)
+            : n.queue.push(arguments);
+        };
+        if (!f._fbq) f._fbq = n;
+        n.push = n;
+        n.loaded = !0;
+        n.version = "2.0";
+        n.queue = [];
+        t = b.createElement(e);
+        t.async = !0;
+        t.src = v;
+        s = b.getElementsByTagName(e)[0];
+        s.parentNode.insertBefore(t, s);
+      })(
+        window,
+        document,
+        "script",
+        "https://connect.facebook.net/en_US/fbevents.js"
+      );
+      fbq("init", "1107385957484297");
+      fbq("track", "PageView");
+    </script>
+    <!-- End Meta Pixel Code -->
+
+    <!-- UTMify Script -->
+    <script
+      src="https://cdn.utmify.com.br/scripts/utms/latest.js"
+      data-utmify-prevent-xcod-sck
+      data-utmify-prevent-subids
+      async
+      defer
+    ></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,100..900;1,100..900&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,100..900;1,100..900&family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/@jaames/iro@5.5.2/dist/iro.min.js"></script>
+  </head>
+  <body class="holographic-bg">
+    <!-- Script para esconder fundo holográfico em rotas específicas (executa imediatamente) -->
+    <script>
+      (function () {
+        var whiteBgRoutes = ["/", "/neurosite"];
+        var currentPath = window.location.pathname;
+        if (whiteBgRoutes.indexOf(currentPath) !== -1) {
+          document.body.classList.remove("holographic-bg");
+          document.body.style.backgroundColor = "white";
+          document.write(
+            "<style>#particles-js, .matrix-code { display: none !important; }</style>"
+          );
+        }
+      })();
+    </script>
+    <!-- Facebook Pixel noscript fallback -->
+    <noscript>
+      <img
+        height="1"
+        width="1"
+        style="display: none"
+        src="https://www.facebook.com/tr?id=1107385957484297&ev=PageView&noscript=1"
+      />
+    </noscript>
+
+    <div id="particles-js"></div>
+    <div class="matrix-code" id="matrix-code"></div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script src="./src/assets/script.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        if (typeof particlesJS !== "undefined") {
+          particlesJS("particles-js", {
+            particles: {
+              number: { value: 80, density: { enable: true, value_area: 800 } },
+              color: { value: "#00f0ff" },
+              shape: { type: "circle" },
+              opacity: { value: 0.5, random: true },
+              size: { value: 3, random: true },
+              line_linked: {
+                enable: true,
+                distance: 150,
+                color: "#00f0ff",
+                opacity: 0.4,
+                width: 1,
+              },
+              move: {
+                enable: true,
+                speed: 2,
+                direction: "none",
+                random: true,
+                straight: false,
+                out_mode: "out",
+              },
+            },
+            interactivity: {
+              detect_on: "canvas",
+              events: {
+                onhover: { enable: true, mode: "grab" },
+                onclick: { enable: true, mode: "push" },
+              },
+            },
+          });
+        }
+
+        // Initialize color pickers with smaller size
+        const colorPickerPrimary = new iro.ColorPicker(
+          "#color-picker-primary",
+          {
+            width: 150,
+            color: "#00f0ff",
+            borderWidth: 1,
+            borderColor: "#333",
+            layout: [
+              {
+                component: iro.ui.Wheel,
+                options: {
+                  wheelLightness: false,
+                  wheelAngle: 0,
+                  wheelDirection: "anticlockwise",
+                },
+              },
+              {
+                component: iro.ui.Slider,
+                options: {},
+              },
+            ],
+          }
+        );
+
+        const colorPickerSecondary = new iro.ColorPicker(
+          "#color-picker-secondary",
+          {
+            width: 150,
+            color: "#9600ff",
+            borderWidth: 1,
+            borderColor: "#333",
+            layout: [
+              {
+                component: iro.ui.Wheel,
+                options: {
+                  wheelLightness: false,
+                  wheelAngle: 0,
+                  wheelDirection: "anticlockwise",
+                },
+              },
+              {
+                component: iro.ui.Slider,
+                options: {},
+              },
+            ],
+          }
+        );
+
+        const colorPickerAccent = new iro.ColorPicker("#color-picker-accent", {
+          width: 150,
+          color: "#ff00e6",
+          borderWidth: 1,
+          borderColor: "#333",
+          layout: [
+            {
+              component: iro.ui.Wheel,
+              options: {
+                wheelLightness: false,
+                wheelAngle: 0,
+                wheelDirection: "anticlockwise",
+              },
+            },
+            {
+              component: iro.ui.Slider,
+              options: {},
+            },
+          ],
+        });
+
+        // Function to update command input with color information
+        function updateCommandWithColors() {
+          const commandInput = document.getElementById("command-input");
+          let currentText = commandInput.value.trim();
+          const styles = [
+            "estilo de site futurista",
+            "estilo de site moderno",
+            "estilo de site minimalista",
+            "efeito partículas",
+            "efeito holográfico",
+            "efeito 3D",
+          ];
+          let currentStyle = styles.find((style) =>
+            currentText.includes(style)
+          );
+          currentText = currentText
+            .replace(/Cores selecionadas:.*?(?=\n|$)/g, "")
+            .trim();
+
+          const primaryColor = colorPickerPrimary.color.hexString;
+          const secondaryColor = colorPickerSecondary.color.hexString;
+          const accentColor = colorPickerAccent.color.hexString;
+
+          const colorInfo = `Cores selecionadas: Primária ${primaryColor}, Secundária ${secondaryColor}, Destaque ${accentColor}`;
+
+          if (!currentStyle) {
+            currentStyle = "";
+          }
+
+          commandInput.value = `${currentStyle} ${currentText
+            .replace(currentStyle, "")
+            .trim()}\n${colorInfo}`.trim();
+        }
+
+        // Add event listeners to color pickers
+        colorPickerPrimary.on("color:change", function (color) {
+          updateCommandWithColors();
+        });
+
+        colorPickerSecondary.on("color:change", function (color) {
+          updateCommandWithColors();
+        });
+
+        colorPickerAccent.on("color:change", function (color) {
+          updateCommandWithColors();
+        });
+
+        // Show status message
+        function showStatusMessage(message, type) {
+          const statusElement = document.getElementById("status-message");
+          statusElement.textContent = message;
+          statusElement.className = "status-message";
+
+          if (type === "success") {
+            statusElement.classList.add("status-success");
+          } else if (type === "error") {
+            statusElement.classList.add("status-error");
+          }
+
+          statusElement.style.display = "block";
+
+          // Hide after 5 seconds
+          setTimeout(() => {
+            statusElement.style.display = "none";
+          }, 5000);
+        }
+      });
+    </script>
+  </body>
+</html>

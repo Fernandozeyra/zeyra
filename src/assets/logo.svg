@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="100" height="100">
+    <defs>
+        <!-- Gradiente para a antena e bolinha -->
+        <linearGradient id="antennaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#00f0ff" />
+            <stop offset="50%" stop-color="#9600ff" />
+            <stop offset="100%" stop-color="#ff00e6" />
+        </linearGradient>
+    </defs>
+
+    <!-- Cabeça branca (ainda maior) -->
+    <rect x="30" y="60" width="180" height="110" rx="30" ry="30" fill="#FFFFFF" stroke="#333" stroke-width="3"/>
+
+    <!-- Olhos -->
+    <circle cx="85" cy="105" r="14" fill="#333"/>
+    <circle cx="155" cy="105" r="14" fill="#333"/>
+
+    <!-- Boca (3 pontinhos) -->
+    <circle cx="105" cy="145" r="5" fill="#333"/>
+    <circle cx="120" cy="145" r="5" fill="#333"/>
+    <circle cx="135" cy="145" r="5" fill="#333"/>
+
+    <!-- Antena (gradiente) -->
+    <line x1="120" y1="60" x2="120" y2="30" stroke="url(#antennaGradient)" stroke-width="5"/>
+    <circle cx="120" cy="25" r="9" fill="url(#antennaGradient)" stroke="#333" stroke-width="2"/>
+</svg>

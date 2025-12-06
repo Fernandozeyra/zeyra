@@ -1,0 +1,854 @@
+import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
+import cookieParser from "cookie-parser";
+import { createRepo, spaceInfo, uploadFiles, whoAmI } from "@huggingface/hub";
+import { InferenceClient } from "@huggingface/inference";
+import bodyParser from "body-parser";
+import { findUserByDocument, findUserById } from "./utils/userUtils.js";
+import { response } from "./utils/responseApi.js";
+import { authenticateUser } from "./utils/authUtils.js";
+import {
+  verifyJWTToken,
+  sendCodeResetPassword,
+  resetPassword,
+} from "./utils/authUtils.js";
+import { generateRandomPassword } from "./utils/passwordUtils.js";
+import connectDB from "./config/database.js";
+import User from "./models/User.js";
+import Plan from "./models/Plan.js";
+import { sendWelcomeEmail } from "./utils/emailUtils.js";
+import { ProjectsUtil } from "./utils/projectsUtil.js";
+
+import checkUser from "./middlewares/checkUser.js";
+import { PROVIDERS } from "./utils/providers.js";
+import { COLORS } from "./utils/colors.js";
+import * as fs from "node:fs";
+import NodeCache from "node-cache";
+
+// Load environment variables from .env file
+dotenv.config();
+
+const app = express();
+
+const ipAddresses = new Map();
+
+// Cache em memória para backup/rollback do HTML por token
+const editorCache = new NodeCache({ stdTTL: 60 * 60, checkperiod: 120 });
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const PORT = process.env.APP_PORT || 3000;
+const REDIRECT_URI =
+  process.env.REDIRECT_URI || `http://localhost:${PORT}/auth/login`;
+const MODEL_ID = "deepseek-ai/DeepSeek-V3-0324";
+const MAX_REQUESTS_PER_IP = 2;
+
+app.use(cookieParser());
+app.use(express.json({ limit: "100mb" }));
+app.use(express.urlencoded({ limit: "100mb", extended: true }));
+app.use(express.static(path.join(__dirname, "dist")));
+
+const getPTag = (repoId) => {
+  return `<p style="border-radius: 8px; text-align: center; font-size: 12px; color: #fff; margin-top: 16px;position: fixed; left: 8px; bottom: 8px; z-index: 10; background: rgba(0, 0, 0, 0.8); padding: 4px 8px;">Made with <img src="https://enzostvs-deepsite.hf.space/logo.svg" alt="DeepSite Logo" style="width: 16px; height: 16px; vertical-align: middle;display:inline-block;margin-right:3px;filter:brightness(0) invert(1);"><a href="https://enzostvs-deepsite.hf.space" style="color: #fff;text-decoration: underline;" target="_blank" >DeepSite</a> - 🧬 <a href="https://enzostvs-deepsite.hf.space?remix=${repoId}" style="color: #fff;text-decoration: underline;" target="_blank" >Remix</a></p>`;
+};
+
+const getUserLogin = async (req, res, next) => {
+  const access_token = req.headers["authorization"]?.split(" ")[1];
+  const userAuth = verifyJWTToken(access_token);
+  console.log(userAuth);
+  if (!userAuth.valid || !userAuth.payload.userId) {
+    return response.unauthorized(res, "Token inválido");
+  }
+  console.log(userAuth.payload.userId);
+  try {
+    const user = await findUserById(userAuth.payload.userId);
+    if (!user) {
+      return response.unauthorized(res, "Token inválido");
+    }
+    req.userLogin = user;
+    next();
+  } catch (error) {
+    return response.badRequest(res, error.message);
+  }
+};
+
+app.get("/api/login", (_req, res) => {
+  const redirectUrl = `https://huggingface.co/oauth/authorize?client_id=${process.env.OAUTH_CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=code&scope=openid%20profile%20write-repos%20manage-repos%20inference-api&prompt=consent&state=1234567890`;
+  res.status(200).send({
+    ok: true,
+    redirectUrl,
+  });
+});
+app.get("/auth/login", async (req, res) => {
+  const { code } = req.query;
+
+  if (!code) {
+    return res.redirect(302, "/");
+  }
+  const Authorization = `Basic ${Buffer.from(
+    `${process.env.OAUTH_CLIENT_ID}:${process.env.OAUTH_CLIENT_SECRET}`
+  ).toString("base64")}`;
+
+  const request_auth = await fetch("https://huggingface.co/oauth/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization,
+    },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code: code,
+      redirect_uri: REDIRECT_URI,
+    }),
+  });
+
+  const response = await request_auth.json();
+
+  if (!response.access_token) {
+    return res.redirect(302, "/");
+  }
+
+  res.cookie("hf_token", response.access_token, {
+    httpOnly: false,
+    secure: true,
+    sameSite: "none",
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+  });
+
+  return res.redirect(302, "/");
+});
+app.get("/auth/logout", (req, res) => {
+  res.clearCookie("hf_token", {
+    httpOnly: false,
+    secure: true,
+    sameSite: "none",
+  });
+  return res.redirect(302, "/");
+});
+
+app.get("/api/me", checkUser, async (req, res) => {
+  let { hf_token } = req.cookies;
+
+  if (process.env.HF_TOKEN && process.env.HF_TOKEN !== "") {
+    return res.send({
+      preferred_username: "local-use",
+      isLocalUse: true,
+    });
+  }
+
+  try {
+    const request_user = await fetch("https://huggingface.co/oauth/userinfo", {
+      headers: {
+        Authorization: `Bearer ${hf_token}`,
+      },
+    });
+
+    const user = await request_user.json();
+    res.send(user);
+  } catch (err) {
+    res.clearCookie("hf_token", {
+      httpOnly: false,
+      secure: true,
+      sameSite: "none",
+    });
+    res.status(401).send({
+      ok: false,
+      message: err.message,
+    });
+  }
+});
+
+app.post("/api/deploy", checkUser, async (req, res) => {
+  const { html, title, path, prompts } = req.body;
+  if (!html || (!path && !title)) {
+    return res.status(400).send({
+      ok: false,
+      message: "Missing required fields",
+    });
+  }
+
+  let { hf_token } = req.cookies;
+  if (process.env.HF_TOKEN && process.env.HF_TOKEN !== "") {
+    hf_token = process.env.HF_TOKEN;
+  }
+
+  try {
+    const repo = {
+      type: "space",
+      name: path ?? "",
+    };
+
+    let readme;
+    let newHtml = html;
+
+    if (!path || path === "") {
+      const { name: username } = await whoAmI({ accessToken: hf_token });
+      const newTitle = title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .split("-")
+        .filter(Boolean)
+        .join("-")
+        .slice(0, 96);
+
+      const repoId = `${username}/${newTitle}`;
+      repo.name = repoId;
+
+      await createRepo({
+        repo,
+        accessToken: hf_token,
+      });
+      const colorFrom = COLORS[Math.floor(Math.random() * COLORS.length)];
+      const colorTo = COLORS[Math.floor(Math.random() * COLORS.length)];
+      readme = `---
+title: ${newTitle}
+emoji: 🐳
+colorFrom: ${colorFrom}
+colorTo: ${colorTo}
+sdk: static
+pinned: false
+tags:
+  - deepsite
+---
+
+Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference`;
+    }
+
+    newHtml = html.replace(/<\/body>/, `${getPTag(repo.name)}</body>`);
+    const file = new Blob([newHtml], { type: "text/html" });
+    file.name = "index.html"; // Add name property to the Blob
+
+    // create prompt.txt file with all the prompts used, split by new line
+    const newPrompts = ``.concat(prompts.map((prompt) => prompt).join("\n"));
+    const promptFile = new Blob([newPrompts], { type: "text/plain" });
+    promptFile.name = "prompts.txt"; // Add name property to the Blob
+
+    const files = [file, promptFile];
+    if (readme) {
+      const readmeFile = new Blob([readme], { type: "text/markdown" });
+      readmeFile.name = "README.md"; // Add name property to the Blob
+      files.push(readmeFile);
+    }
+    await uploadFiles({
+      repo,
+      files,
+      accessToken: hf_token,
+    });
+    return res.status(200).send({ ok: true, path: repo.name });
+  } catch (err) {
+    return res.status(500).send({
+      ok: false,
+      message: err.message,
+    });
+  }
+});
+
+app.post("/api/ask-ai", async (req, res) => {
+  const access_token = req.headers["authorization"]?.split(" ")[1];
+  const userAuth = verifyJWTToken(access_token);
+  console.log(userAuth);
+  if (!userAuth.valid || !userAuth.payload.userId) {
+    return response.unauthorized(res, "Token inválido");
+  }
+  console.log(userAuth.payload.userId);
+  try {
+    const user = await findUserById(userAuth.payload.userId);
+    if (!user) {
+      return response.unauthorized(res, "Token inválido");
+    }
+    if (user.coin <= 0) {
+      return response.badRequest(res, "Saldo insuficiente");
+    }
+    user.subscribe.consumedCoins += 1;
+    await user.save();
+  } catch (error) {
+    return response.badRequest(res, error.message);
+  }
+  const { prompt, html, previousPrompt, provider } = req.body;
+  if (!prompt) {
+    return res.status(400).send({
+      ok: false,
+      message: "Missing required fields",
+    });
+  }
+
+  let { hf_token } = req.cookies;
+  let token = hf_token;
+
+  if (process.env.HF_TOKEN && process.env.HF_TOKEN !== "") {
+    token = process.env.HF_TOKEN;
+  }
+
+  const ip =
+    req.headers["x-forwarded-for"]?.split(",")[0].trim() ||
+    req.headers["x-real-ip"] ||
+    req.socket.remoteAddress ||
+    req.ip ||
+    "0.0.0.0";
+
+  if (!token) {
+    ipAddresses.set(ip, (ipAddresses.get(ip) || 0) + 1);
+    if (ipAddresses.get(ip) > MAX_REQUESTS_PER_IP) {
+      return res.status(429).send({
+        ok: false,
+        openLogin: true,
+        message: "Log In to continue using the service",
+      });
+    }
+
+    token = process.env.DEFAULT_HF_TOKEN;
+  }
+
+  // Set up response headers for streaming
+  res.setHeader("Content-Type", "text/plain");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  const client = new InferenceClient(token);
+  let completeResponse = "";
+
+  let TOKENS_USED = prompt?.length;
+  if (previousPrompt) TOKENS_USED += previousPrompt.length;
+  if (html) TOKENS_USED += html.length;
+
+  const DEFAULT_PROVIDER = PROVIDERS.novita;
+  const selectedProvider =
+    provider === "auto"
+      ? DEFAULT_PROVIDER
+      : PROVIDERS[provider] ?? DEFAULT_PROVIDER;
+
+  if (provider !== "auto" && TOKENS_USED >= selectedProvider.max_tokens) {
+    return res.status(400).send({
+      ok: false,
+      openSelectProvider: true,
+      message: `Context is too long. ${selectedProvider.name} allow ${selectedProvider.max_tokens} max tokens.`,
+    });
+  }
+
+  try {
+    const chatCompletion = client.chatCompletionStream({
+      model: MODEL_ID,
+      provider: selectedProvider.id,
+      messages: [
+        {
+          role: "system",
+          content: `ONLY USE HTML, CSS AND JAVASCRIPT. All Buttons and Icons must be wrapped by link. If you want to use ICON make sure to import the library first. Try to create the best UI possible by using only HTML, CSS and JAVASCRIPT. Use as much as you can TailwindCSS for the CSS, if you can't do something with TailwindCSS, then use custom CSS (make sure to import <script src="https://cdn.tailwindcss.com"></script> in the head). Also, try to ellaborate as much as you can, to create something unique. ALWAYS GIVE THE RESPONSE INTO A SINGLE HTML FILE.`,
+        },
+        ...(previousPrompt
+          ? [
+              {
+                role: "user",
+                content: previousPrompt,
+              },
+            ]
+          : []),
+        ...(html
+          ? [
+              {
+                role: "assistant",
+                content: `The current code is: ${html}.`,
+              },
+            ]
+          : []),
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      ...(selectedProvider.id !== "sambanova"
+        ? {
+            max_tokens: selectedProvider.max_tokens,
+          }
+        : {}),
+    });
+
+    while (true) {
+      const { done, value } = await chatCompletion.next();
+      if (done) {
+        break;
+      }
+      const chunk = value.choices[0]?.delta?.content;
+      if (chunk) {
+        if (provider !== "sambanova") {
+          res.write(chunk);
+          completeResponse += chunk;
+
+          if (completeResponse.includes("</html>")) {
+            break;
+          }
+        } else {
+          let newChunk = chunk;
+          if (chunk.includes("</html>")) {
+            // Replace everything after the last </html> tag with an empty string
+            newChunk = newChunk.replace(/<\/html>[\s\S]*/, "</html>");
+          }
+          completeResponse += newChunk;
+          res.write(newChunk);
+          if (newChunk.includes("</html>")) {
+            break;
+          }
+        }
+      }
+    }
+    // End the response stream
+    res.end();
+  } catch (error) {
+    if (error.message.includes("exceeded your monthly included credits")) {
+      return res.status(402).send({
+        ok: false,
+        openProModal: true,
+        message: error.message,
+      });
+    }
+    if (!res.headersSent) {
+      res.status(500).send({
+        ok: false,
+        message:
+          error.message || "An error occurred while processing your request.",
+      });
+    } else {
+      // Otherwise end the stream
+      res.end();
+    }
+  }
+});
+
+app.get("/api/remix/:username/:repo", async (req, res) => {
+  const { username, repo } = req.params;
+  const { hf_token } = req.cookies;
+
+  let token = hf_token || process.env.DEFAULT_HF_TOKEN;
+
+  if (process.env.HF_TOKEN && process.env.HF_TOKEN !== "") {
+    token = process.env.HF_TOKEN;
+  }
+
+  const repoId = `${username}/${repo}`;
+
+  const url = `https://huggingface.co/spaces/${repoId}/raw/main/index.html`;
+  try {
+    const space = await spaceInfo({
+      name: repoId,
+      accessToken: token,
+      additionalFields: ["author"],
+    });
+
+    if (!space || space.sdk !== "static" || space.private) {
+      return res.status(404).send({
+        ok: false,
+        message: "Space not found",
+      });
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      return res.status(404).send({
+        ok: false,
+        message: "Space not found",
+      });
+    }
+    let html = await response.text();
+    // remove the last p tag including this url https://enzostvs-deepsite.hf.space
+    html = html.replace(getPTag(repoId), "");
+
+    let user = null;
+
+    if (token) {
+      const request_user = await fetch(
+        "https://huggingface.co/oauth/userinfo",
+        {
+          headers: {
+            Authorization: `Bearer ${hf_token}`,
+          },
+        }
+      )
+        .then((res) => res.json())
+        .catch(() => null);
+
+      user = request_user;
+    }
+
+    res.status(200).send({
+      ok: true,
+      html,
+      isOwner: space.author === user?.preferred_username,
+      path: repoId,
+    });
+  } catch (error) {
+    return res.status(500).send({
+      ok: false,
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * Rota Webhook genérica
+ * Implemente sua lógica personalizada aqui
+ */
+app.post("/api/webhook", async (req, res) => {
+  try {
+    const tokenValid =
+      "nUwkIigeBg3PmpPBIYazPSROvI1FvJghpg6ovpnaaUOPD66pCExSIG0N1d0PymOl1KPXPR1tGXj8LZiI6sTlNPiHR59FO5OjR2Zj";
+    const { status, token, item, subscriptions, customer } = req.body;
+    if (!status || status !== "authorized") {
+      return response.success(
+        res,
+        "Webhook recebido com sucesso, mas sem auteração"
+      );
+    }
+    const findUser = await findUserByDocument(customer.cpf ?? customer.cnpj);
+
+    if (!item || !item.offer_code || !token || token !== tokenValid) {
+      return response.badRequest(
+        res,
+        "Requisição inválida e/ou token inválido"
+      );
+    }
+    const findPlan = await Plan.findOne({ code: item.offer_code });
+    if (!findPlan) {
+      return response.badRequest(res, "Plano não encontrado");
+    }
+    if (!findUser) {
+      const password = generateRandomPassword();
+      const user = new User({
+        email: customer.email,
+        name: customer.name,
+        document: customer.cpf ? customer.cpf : customer.cnpj,
+        role: "CLIENT",
+        isActive: true,
+        coin: 0,
+        auth: {
+          email: customer.email,
+          password,
+        },
+        subscribe: {
+          plan: findPlan._id,
+          consumedCoins: 0,
+          consumedSites: 0,
+          startDate: new Date(),
+          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          isActive: true,
+        },
+      });
+      await user.save();
+      try {
+        await sendWelcomeEmail(customer.email, customer.name, password);
+      } catch (error) {
+        console.error("❌ Erro ao enviar email de boas vindas:", error);
+      }
+      return response.success(res, "Usuário criado com sucesso");
+    } else {
+      if (findUser.subscribe.plan) {
+        if (findUser.subscribe.plan.code !== findPlan.code) {
+          findUser.subscribe.plan = findPlan._id;
+        }
+        findUser.subscribe.endDate = new Date(
+          Date.now() + 30 * 24 * 60 * 60 * 1000
+        );
+        findUser.subscribe.isActive = true;
+        findUser.subscribe.consumedCoins = 0;
+      }
+
+      await findUser.save();
+    }
+
+    return response.success(res, "webhook recebido com sucesso");
+  } catch (error) {
+    console.error("❌ Erro no webhook:", error);
+    res.status(500).json({
+      success: false,
+      message: "Erro interno do servidor",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Rota Webhook com parâmetro dinâmico
+ * Útil para diferentes tipos de webhooks
+ */
+app.post("/api/webhook/:type", (req, res) => {
+  try {
+    const { type } = req.params;
+
+    console.log(`🔔 Webhook do tipo '${type}' recebido`);
+    console.log("Headers:", req.headers);
+    console.log("Body:", req.body);
+    console.log("Query params:", req.query);
+    console.log("Tipo:", type);
+
+    // TODO: Implemente sua lógica personalizada baseada no tipo
+    // req.params.type contém o tipo do webhook
+
+    res.status(200).json({
+      success: true,
+      message: `Webhook do tipo '${type}' recebido com sucesso`,
+      timestamp: new Date().toISOString(),
+      webhook_type: type,
+      received_data: {
+        body: req.body,
+        headers: req.headers,
+        query: req.query,
+        method: req.method,
+        url: req.url,
+        params: req.params,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Erro no webhook:", error);
+    res.status(500).json({
+      success: false,
+      message: "Erro interno do servidor",
+      error: error.message,
+    });
+  }
+});
+
+// RENATO
+app.get("/api/users/me", async (req, res) => {
+  const access_token = req.headers["authorization"]?.split(" ")[1];
+  const userAuth = verifyJWTToken(access_token);
+  if (!userAuth.valid || !userAuth.payload.userId) {
+    return response.unauthorized(res, "Token inválido");
+  }
+  try {
+    const user = await findUserById(userAuth.payload.userId);
+    if (!user) {
+      return response.unauthorized(res, "Token inválido");
+    }
+    return response.success(res, user);
+  } catch (error) {
+    return response.badRequest(res, error.message);
+  }
+});
+
+app.post("/api/projects", getUserLogin, async (req, res) => {
+  const { userLogin } = req;
+  const { name, data } = req.body;
+  if (!name || !data) {
+    return response.badRequest(res, "Nome e dados são obrigatórios");
+  }
+  try {
+    const project = await ProjectsUtil.createProject({
+      name,
+      data,
+      user: userLogin._id,
+    });
+    return response.success(res, project);
+  } catch (error) {
+    return response.badRequest(res, error.message);
+  }
+});
+
+app.get("/api/projects", getUserLogin, async (req, res) => {
+  const { userLogin } = req;
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 10;
+  const sortBy = req.query.sortBy || "createdAt";
+  const sortOrder = req.query.sortOrder || "desc";
+  try {
+    const projects = await ProjectsUtil.getProjectsByUserId(userLogin._id, {
+      page,
+      limit,
+      sortBy,
+      sortOrder,
+    });
+    return response.success(res, projects);
+  } catch (error) {
+    return response.badRequest(res, error.message);
+  }
+});
+
+app.get("/api/projects/:id", getUserLogin, async (req, res) => {
+  const { userLogin, id } = req;
+  try {
+    const project = await ProjectsUtil.getProjectById(id, userLogin._id);
+    return response.success(res, project);
+  } catch (error) {
+    return response.badRequest(res, error.message);
+  }
+});
+
+app.put("/api/projects/:id", getUserLogin, async (req, res) => {
+  const { userLogin } = req;
+  const { id } = req.params;
+  const { name, data } = req.body;
+  if (!name || !data) {
+    return response.badRequest(res, "Nome e dados são obrigatórios");
+  }
+  try {
+    const project = await ProjectsUtil.updateProject(id, userLogin._id, {
+      name,
+      data,
+    });
+    return response.success(res, project);
+  } catch (error) {
+    return response.badRequest(res, error.message);
+  }
+});
+
+app.delete("/api/projects/:id", getUserLogin, async (req, res) => {
+  const { userLogin } = req;
+  const { id } = req.params;
+  try {
+    const project = await ProjectsUtil.deleteProject(id, userLogin._id);
+    return response.success(res, project);
+  } catch (error) {
+    return response.badRequest(res, error.message);
+  }
+});
+
+// RENATO
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return response.badRequest(res, "Email e senha são obrigatórios");
+  }
+  try {
+    const userAuth = await authenticateUser(email, password);
+
+    return response.success(res, userAuth);
+  } catch (error) {
+    return response.badRequest(res, error.message);
+  }
+});
+
+app.post("/api/auth/send-code-reset-password", async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return response.badRequest(res, "Email é obrigatório");
+  }
+  try {
+    const userAuth = await sendCodeResetPassword(email);
+
+    return response.success(res, userAuth);
+  } catch (error) {
+    return response.badRequest(res, error.message);
+  }
+});
+
+app.post("/api/auth/reset-password", async (req, res) => {
+  const { email, code, password } = req.body;
+
+  if (!email || !code || !password) {
+    return response.badRequest(res, "Email, código e senha são obrigatórios");
+  }
+  try {
+    const userAuth = await resetPassword(email, code, password);
+
+    return response.success(res, userAuth);
+  } catch (error) {
+    return response.badRequest(res, error.message);
+  }
+});
+
+// RENATO/
+app.post("/api/auth/verifyToken", async (req, res) => {
+  const { token } = req.body;
+  const userAuth = verifyJWTToken(token);
+  if (userAuth.valid) {
+    return response.success(res, userAuth.payload);
+  }
+  return response.badRequest(res, "Token inválido");
+});
+
+// ===== Editor backup/rollback =====
+app.post("/api/editor/backup", async (req, res) => {
+  try {
+    const access_token = req.headers["authorization"]?.split(" ")[1];
+    if (!access_token) {
+      return response.unauthorized(res, "Token não fornecido");
+    }
+    const { html } = req.body || {};
+    if (!html || typeof html !== "string" || html.trim() === "") {
+      return response.badRequest(res, "HTML inválido");    
+    }
+
+    const cachedHtml = editorCache.get(access_token);
+    if (cachedHtml) {
+      editorCache.del(access_token);
+    }
+    editorCache.set(access_token, html);
+    return response.success(res, { cached: true });
+  } catch (error) {
+    return response.badRequest(res, error.message || "Erro ao salvar backup");
+  }
+});
+
+app.post("/api/editor/rollback", async (req, res) => {
+  try {
+    const access_token = req.headers["authorization"]?.split(" ")[1];
+    if (!access_token) {
+      return response.unauthorized(res, "Token não fornecido");
+    }
+    const cachedHtml = editorCache.get(access_token);
+    if (!cachedHtml) {
+      return response.badRequest(res, "Nenhum backup encontrado");
+    }
+    editorCache.del(access_token);
+    return response.success(res, { html: cachedHtml });
+  } catch (error) {
+    return response.badRequest(res, error.message || "Erro ao restaurar backup");
+  }
+});
+
+app.get("*", (_req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
+});
+
+/**
+ * Endpoint que processa pagamento efetuado com sucesso
+ */
+app.post("/api/paid", (req, res) => {
+  const { external_reference, paid_at, status } = req.body;
+
+  console.log("🔔 Webhook recebido");
+  console.log(req.body);
+
+  const dir = "/home/ec2-user/greenn-webhooks";
+  const filename = `${external_reference || "sem_ref"}-${Date.now()}.json`;
+  const filepath = path.join(dir, filename);
+
+  const data = {
+    external_reference,
+    paid_at,
+    status,
+    full_payload: req.body,
+    received_at: new Date().toISOString(),
+  };
+
+  fs.writeFile(filepath, JSON.stringify(data, null, 2), (err) => {
+    if (err) {
+      console.error("❌ Erro ao gravar arquivo:", err);
+      return res.status(500).json({ error: "Erro ao gravar arquivo" });
+    }
+    console.log(`✅ Webhook salvo em: ${filepath}`);
+    res.status(200).json({ message: "Recebido com sucesso" });
+  });
+});
+
+// Conectar ao banco de dados antes de iniciar o servidor
+const startServer = async () => {
+  try {
+    // Conectar ao MongoDB
+    await connectDB();
+    console.log("✅ Conectado ao banco de dados");
+
+    // Iniciar servidor
+    app.listen(PORT, () => {
+      console.log(`🚀 Servidor rodando na porta ${PORT}`);
+      console.log(`📱 Acesse: http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error("❌ Erro ao conectar ao banco de dados:", error);
+    process.exit(1);
+  }
+};
+
+startServer();
